@@ -215,7 +215,7 @@ Only report success based on link status. Do not perform RX counter or arping re
 
 <parameter name="fail_resource_when_interface_down">
 <longdesc lang="en">
-Fail the resource when the monitor operations detects that the interface is down.
+Fail the resource when the monitor operations detects that the interface is down on the current node and up on another node.
 </longdesc>
 <shortdesc lang="en">Fail the resource when interface is down</shortdesc>
 <content type="boolean" default="${OCF_RESKEY_fail_resource_when_interface_down_default}" />
@@ -525,22 +525,47 @@ if_monitor() {
 	else
 		ocf_log err "Monitoring of $OCF_RESOURCE_INSTANCE failed."
 		set_cib_value 0
+		attr_rc=$?
 
-		## If we have been configured to fail the resource when the monitoring fails, use the custom behaviour, as described below:
-		## The monitor operation will fail if the interface is down, allowing the on-fail meta attribute to be used to control what
-		## happens when an interface is down.
 		if ocf_is_true "$OCF_RESKEY_fail_resource_when_interface_down"; then
-			# If the interface check failed but the attribute was set successfully, exit with $OCF_ERR_GENERIC.
-			# Otherwise, exit with the error return code from setting the attribute.
-			case "$?" in
-				0) attr_rc=$OCF_ERR_GENERIC ;;
-				*) attr_rc=$? ;;
-			esac
-		## Use the normal ethmonitor behaviour, as described below:
-		## The resource should not fail, if the interface is down. It should fail, if the update of the CIB variable has errors.
-		## To react on the interface failure you must use constraints based on the CIB variable value, not on the resource itself.
-		else
-			attr_rc=$?
+			local other_node_with_interface_up_exists = false
+			local online_nodes=$(crm_node --partition)
+
+			# Iterate through all of the online nodes to check if the interface is up on any of them
+			for node in $online_nodes
+			do
+				# Ignore the node that we are running on
+				if [ "$node" = "$(crm_node -n)" ]; then
+					continue
+				fi
+
+				# Ignore any nodes that don't have the attribute set
+				if ! $(attrd_updater --query --quiet --name $ATTRNAME -N $node > /dev/null 2>&1) ; then
+					continue
+				fi
+				
+				# Get the attribute value
+				attribute_value=$(attrd_updater --query --quiet --name $ATTRNAME -N $node |
+						awk -F= '{gsub("\"","");print $NF}')
+
+				ocf_log debug "$node has $ATTRNAME value of '$attribute_value'"
+
+				if [ $attribute_value -eq 1 ]; then
+					other_node_with_interface_up_exists=true
+					break
+				fi
+			done
+
+			if [ $other_node_with_interface_up_exists ]; then
+				# Only return a custom failed exit code if setting the attribute was successful.
+				# (if setting the attribute failed, the return code of set_cib_value will be returned by if_monitor)
+				if [ $attr_rc -eq 0 ]; then
+					ocf_log info "Found another node with a healthy interface. Exiting monitor operation with a failure exit code."
+					attr_rc=$OCF_ERR_GENERIC
+				fi
+			else
+				ocf_log debug "No available node with a healthy interface. Exiting monitor operation with normal exit code."
+			fi
 		fi
 	fi
 	
