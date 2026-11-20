@@ -10,6 +10,10 @@
 # Copyright (c) 2011 Robert Euhus, Alexander Krauth, Lars Marowsky-Br�e
 #					All Rights Reserved.
 #
+# Modified by Datapath Ltd, November 2021: the monitor operation fails when the interface goes down.
+# Modified by Datapath Ltd, April 2022: added the fail_resource_when_interface_down parameter.
+# Modified by Datapath Ltd, May 2022: the monitor operation fails only if another node has the interface up.
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of version 2 of the GNU General Public License as
 # published by the Free Software Foundation.
